@@ -1,0 +1,418 @@
+#######################################################
+#######################################################
+####                                               ####
+####          Rodolfo Maddaloni                    ####
+####          Progetto Tesi                        ####
+####                                               ####
+#######################################################
+#######################################################
+
+
+rm(list=ls())
+
+library(quantmod)
+library(ts.extend)
+library(tseries)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(rportfolio)
+library(GGally)
+library(tidyverse)
+library(data.table)
+
+# AGGIUNGIAMO TUTTI I DATI ALLA NOSTRA TIME SERIES ---- 
+# Scarichiamo dati da Yahoo Finance
+# Categoria MorningStar: Azioni USA large cap growth
+# Benchmark: Standard and Poor's Total Return USD
+getSymbols('^SP500TR',src='yahoo',return.class='zoo',from=as.Date("2000-01-01"),to='2023-02-10')
+# View(SP500TR)
+str(SP500TR)
+SP500=SP500TR$SP500TR.Close
+# ETF 1
+getSymbols('SPY',src='yahoo',return.class='zoo',from=as.Date("2000-01-01"),to='2023-02-10')
+ETF1 =  SPY$SPY.Close
+str(ETF1)
+# ETF 2
+getSymbols('IVV',src='yahoo',return.class='zoo',from=as.Date("2000-01-01"),to='2023-02-10')
+ETF2 =  na.omit(IVV$IVV.Close)
+str(ETF2)
+# Active Mutual Fund 1
+getSymbols('FCNTX',src='yahoo',return.class='zoo',from=as.Date("2000-01-01"),to='2023-02-10')
+AMF1 =  na.omit(FCNTX$FCNTX.Close)
+str(AMF1)
+# Active Mutual Fund 2
+getSymbols('AIVSX',src='yahoo',return.class='zoo',from=as.Date("2000-01-01"),to='2023-02-10')
+AMF2 =  na.omit(AIVSX$AIVSX.Close)
+str(AMF2)
+
+# Aggiungiamo alla time series anche il risk-free rate
+getSymbols('DTB3',src='FRED',return.class='zoo',to='2023-02-10')
+rf = DTB3
+str(rf)
+
+# Con questi codici creiamo una time-series di CS e SP con le date comuni
+X=ts.intersect(as.ts(ETF1),as.ts(ETF2),as.ts(AMF1),as.ts(AMF2),as.ts(SP500),as.ts(rf))
+X = na.remove(X)
+colnames(X) = c("ETF1","ETF2","AMF1","AMF2","SP500","rf")
+# View(X)
+str(X)
+plot.ts(X)
+
+# Eliminiamo tutto tranne la time-series
+rm(list = Filter(function(x) 'zoo' %in% class(get(x)), ls(all = TRUE)))
+
+# Creiamo la colonna delle date
+dfproject <- data.frame(date=as.Date(as.integer(time(X))), as.matrix(X))
+rm(list = ls.str(mode = 'numeric'))
+# Sono arrivato ad un punto in cui ho un dataframe con date, valori dell'ETF CS,
+# valore dello SP e del tasso free risk. Per aggiungere nuove colonne basta
+# modificare solo qualche valore
+
+# Ho calcolato rendimenti giornalieri logaritmici di CS e SP
+dlnETF1=diff(log(dfproject[,2]))
+dlnETF2=diff(log(dfproject[,3]))
+dlnAMF1=diff(log(dfproject[,4]))
+dlnAMF2=diff(log(dfproject[,5]))
+dlnSP500=diff(log(dfproject[,6]))
+dlnETF1 = c(0,dlnETF1)
+dlnETF2 = c(0,dlnETF2)
+dlnAMF1 = c(0,dlnAMF1)
+dlnAMF2 = c(0,dlnAMF2)
+dlnSP500 = c(0,dlnSP500)
+
+dfproject[8] = dlnETF1
+dfproject[9] = dlnETF2
+dfproject[10] = dlnAMF1
+dfproject[11] = dlnAMF2
+dfproject[12] = dlnSP500
+rm(list = ls.str(mode = 'numeric'))
+names(dfproject) <- c("date","ETF1","ETF2","AMF1","AMF2","SP500","rf","dlnETF1","dlnETF2","dlnAMF1","dlnAMF2","dlnSP500")
+
+# Abbiamo ora un dataframe con prezzi di 2 ETF, 2 AMF, SP500TR, risk-free rate e i rendimenti
+# Possiamo calcolare i coefficienti ----
+
+# Calcoliamo la media dei rendimenti giornalieri
+mean(dfproject$dlnETF1)
+mean(dfproject$dlnETF2)
+mean(dfproject$dlnAMF1)
+mean(dfproject$dlnAMF2)
+mean(dfproject$dlnSP500)
+# i rendimenti giornalieri percentuali
+mean(dfproject$dlnETF1)*100
+mean(dfproject$dlnETF2)*100
+mean(dfproject$dlnAMF1)*100
+mean(dfproject$dlnAMF2)*100
+mean(dfproject$dlnSP500)*100
+
+# i rendimenti annuali
+mean(dfproject$dlnETF1)*250
+mean(dfproject$dlnETF2)*250
+mean(dfproject$dlnAMF1)*250
+mean(dfproject$dlnAMF2)*250
+mean(dfproject$dlnSP500)*250
+# e i rendimenti annuali percentuali
+mean(dfproject$dlnETF1)*250*100
+mean(dfproject$dlnETF2)*250*100
+mean(dfproject$dlnAMF1)*250*100
+mean(dfproject$dlnAMF2)*250*100
+mean(dfproject$dlnSP500)*250*100
+
+# la deviazione standard giornaliera
+sd(dfproject$dlnETF1)
+sd(dfproject$dlnETF2)
+sd(dfproject$dlnAMF1)
+sd(dfproject$dlnAMF2)
+sd(dfproject$dlnSP500)
+# ... e la deviazione standard annuale
+sqrt(var(dfproject$dlnETF1)/(1/250))
+sqrt(var(dfproject$dlnETF2)/(1/250))
+sqrt(var(dfproject$dlnAMF1)/(1/250))
+sqrt(var(dfproject$dlnAMF2)/(1/250))
+sqrt(var(dfproject$dlnSP500)/(1/250))
+
+# Analizziamo graficamente cosa avremmo avuto investendo 100$ in ogni fondo
+
+# Compute gross returns
+SP500_gret <- 1 + dfproject$dlnSP500
+etf1_gret <- 1 + dfproject$dlnETF1
+etf2_gret <- 1 + dfproject$dlnETF2
+amf1_gret <- 1 + dfproject$dlnAMF1
+amf2_gret <- 1 + dfproject$dlnAMF2
+# Compute future values
+SP500_fv <- cumprod(SP500_gret)*100
+etf1_fv <- cumprod(etf1_gret)*100
+etf2_fv <- cumprod(etf2_gret)*100
+amf1_fv <- cumprod(amf1_gret)*100
+amf2_fv <- cumprod(amf2_gret)*100
+
+
+# Plot the evolution of the $100 invested in funds as a function of time ----
+
+dfproject1 <- data.frame(dfproject[,1],SP500_fv,etf1_fv,etf2_fv,amf1_fv,amf2_fv)
+names(dfproject1) <- c("date","Standard & Poor's 500","ETF 1","ETF 2","AMF 1","AMF 2")
+df_long <- dfproject1 %>% 
+  pivot_longer(cols = !date, names_to = "variable", values_to = "value")
+
+
+ggp <- ggplot(data = df_long, aes(x = date, y = value, group = variable, colour = variable)) +
+  geom_line() +
+  labs(x = "Data", y = "Prezzo",
+       title = "Andamento di 100$ investiti in ogni fondo",
+       caption = "Data from Yahoo Finance") +
+  theme_bw() +
+  theme(
+    # Rendiamo gli assi neri con linea doppia
+    axis.line = element_line(colour = "black", 
+                             size = 1, linetype = "solid"),
+    legend.justification = c("right", "top"),
+    legend.box.just = "right",
+    legend.margin = margin(6,6,6,6),
+    legend.box.margin = margin(6,6,6,6),
+    legend.position = "bottom",
+    legend.text = element_text(size = 10),
+    legend.title=element_blank()
+  ) +
+  # Modificare i limiti dell'asse y
+  coord_cartesian(ylim = c(min(df_long[,3]),max(df_long[,3]))) +
+  scale_color_brewer(palette = "Dark2") +
+  # Crisi subprime
+  annotate("rect", xmin = as.Date("2008-08-15"), xmax = as.Date("2008-09-30"),
+           ymin = min(df_long[,3]), ymax = max(df_long[,3]), alpha = .2, fill = "orange") +
+  annotate("segment", x = as.Date("2009-12-28"), xend = as.Date("2008-09-30"), y = 200, yend = 150,
+           colour = "grey", size = .5) +
+  annotate("text", x = as.Date("2009-12-28"), y = 230,
+           label = "Fallimento\nLehman\nBrothers", colour = "darkgrey",size=2) +
+  # Crisi debito sovrano
+  annotate("rect", xmin = as.Date("2011-05-22"), xmax = as.Date("2011-09-22"),
+           ymin = min(df_long[,3]), ymax = max(df_long[,3]), alpha = .2, fill = "orange") +
+  annotate("segment", x = as.Date("2012-06-01"), xend = as.Date("2011-09-22"), y = 200, yend = 150,
+           colour = "grey", size = .5) +
+  annotate("text", x = as.Date("2012-06-01"), y = 230,
+           label = "Crisi del\ndebito\nsovrano", colour = "darkgrey",size=2) +
+  # Prima ondata covid
+  annotate("rect", xmin = as.Date("2020-02-15"), xmax = as.Date("2020-05-01"),
+           ymin = min(df_long[,3]), ymax = max(df_long[,3]), alpha = .2, fill = "orange") +
+  annotate("segment", x = as.Date("2019-06-01"), xend = as.Date("2020-02-15"), y = 400, yend = 350,
+           colour = "grey", size = .5) +  
+  annotate("text", x = as.Date("2019-01-01"), y = 410,
+           label = "Prima\nondata\nCovid-19", colour = "darkgrey", size = 2) +
+  # Crisi energetica 2021/2022
+  annotate("rect", xmin = as.Date("2021-09-14"), xmax = as.Date("2021-12-20"),
+           ymin = min(df_long[,3]), ymax = max(df_long[,3]), alpha = .2, fill = "orange") +
+  annotate("segment", x = as.Date("2021-03-01"), xend = as.Date("2021-09-14"), y = 350, yend = 425,
+           colour = "grey", size = .5) + 
+  annotate("text", x = as.Date("2021-02-01"), y = 320,
+           label = "Inizio\ncrisi\nenergetica", colour = "darkgrey", size = 2) +
+  # Inizio Guerra RUS-UKR
+  annotate("rect", xmin = as.Date("2022-02-24"), xmax = as.Date("2022-03-20"),
+           ymin = min(df_long[,3]), ymax = max(df_long[,3]), alpha = .2, fill = "orange") +
+  annotate("segment", x = as.Date("2022-03-20"), xend = as.Date("2022-05-20"), y = 350, yend = 320,
+           colour = "grey", size = .5) + 
+  annotate("text", x = as.Date("2022-06-30"), y = 295,
+           label = "Inizio\nGuerra\nRUS-UKR", colour = "darkgrey", size = 2)
+# Aggiungiamo il cambiamento nel management dei fondi
+# annotate("pointrange", x = as.Date("2016-01-01"), y = 400, ymin = 400, ymax = 400,
+#        colour = "red", size = 0.4) 
+
+### ALTRO MODO PER FARE IL GRAFICO
+### chart.CumReturns(ratio[,7:11],
+###              main = "Cumulative product",
+###              legend.loc = "topleft")
+
+
+print(ggp)
+
+ggsave("Grafico_100dollariSP500.png", plot = ggp, path = "INSERIRE_PERCORSO_FILE", width = 7.3, height = 5.21)
+
+rm(list = ls.str(mode = 'numeric'))
+
+
+# Analizziamo analiticamente
+ratio <- as.xts(as.data.table(dfproject))
+
+# Calcoliamo asimmetria e curtosi ----
+skewness(dfproject$dlnETF1)
+skewness(dfproject$dlnETF2)
+skewness(dfproject$dlnAMF1)
+skewness(dfproject$dlnAMF2)
+skewness(dfproject$dlnSP500)
+
+kurtosis(dfproject$dlnETF1)
+kurtosis(dfproject$dlnETF2)
+kurtosis(dfproject$dlnAMF1)
+kurtosis(dfproject$dlnAMF2)
+kurtosis(dfproject$dlnSP500)
+
+# Modo più sintetico per calcolare questi dati
+table.Distributions(ratio[,7:11])
+
+# Calcoliamo gli indici ----
+
+# Tracking error ----
+# Giornaliero
+TrackingError(ratio[,7:10],ratio[,11],scale = 252)
+# Mensile
+TrackingError(ratio[,7:10],ratio[,11],scale = 12)
+# Trimestrale
+TrackingError(ratio[,7:10],ratio[,11],scale = 4)
+
+# Tracking error volatility giornaliera ----
+# TEV ETF 1
+sqrt(sum((ratio[,7]-ratio[,11])^2)/(length(ratio[,7]-1)))
+# TEV ETF 2
+sqrt(sum((ratio[,8]-ratio[,11])^2)/(length(ratio[,7]-1)))
+# TEV AMF 1
+sqrt(sum((ratio[,9]-ratio[,11])^2)/(length(ratio[,7]-1)))
+# TEV AMF 2
+sqrt(sum((ratio[,10]-ratio[,11])^2)/(length(ratio[,7]-1)))
+
+
+# Calcoliamo lo sharpe ratio ----
+#   Un indice di Sharpe superiore ad uno ( > 1) significa che il fondo ha un rendimento
+#   superiore al rischio. È possibile compararlo con gli indici degli altri fondi
+#   per capire qual è il migliore.
+
+sharpe_etf1 <- (mean(dfproject$dlnETF1)*250 - (sum(dfproject$rf)/100/3020))/sqrt(var(dfproject$dlnETF1)/(1/250))
+sharpe_etf2 <- (mean(dfproject$dlnETF2)*250 - (sum(dfproject$rf)/100/3020))/sqrt(var(dfproject$dlnETF2)/(1/250))
+sharpe_amf1 <- (mean(dfproject$dlnAMF1)*250 - (sum(dfproject$rf)/100/3020))/sqrt(var(dfproject$dlnAMF1)/(1/250))
+sharpe_amf2 <- (mean(dfproject$dlnAMF2)*250 - (sum(dfproject$rf)/100/3020))/sqrt(var(dfproject$dlnAMF2)/(1/250))
+
+
+# Calcoliamo l'Information Ratio ----
+#   Se il valore dell'Information Ratio è positivo vuol dire che la gestione
+#   dell'investimento è in attivo ed efficiente,
+#   mentre un valore prossimo allo zero suggerisce una gestione passiva.
+#   Un indicatore sotto lo zero invece non ha alcun significato.
+round(InformationRatio(ratio[,7:10],ratio[,11]),4)
+
+# Indice di Treynor ----
+round(TreynorRatio(ratio[,7:10], ratio[,11], Rf = 0),4)
+
+# Indice di Sortino ----
+round(SortinoRatio(ratio[,7:10]),4)
+
+
+####### Prove con vari grafici ----
+
+# Correlogramma fatto bene
+chart.Correlation(ratio[,7:11])
+# Correlazione dei fondi con il benchmark (GRAFICO DA MIGLIORARE)
+chart.RollingCorrelation(ratio[,7:10],ratio[,11],
+                         main = "Correlazione dei fondi con il benchmark",
+                         legend.loc = "bottomleft")
+
+
+(ggp1 <- ggplot(dfproject, aes(x = ETF1), fill = type) +
+    geom_density(alpha = 1)+
+    geom_density(aes(ETF2),alpha = 1))
+#geom_density(aes(AMF1),alpha = 1)+
+#geom_density(aes(AMF2),alpha = 1)+
+#geom_density(aes(RLG),alpha = 1))
+
+ggplot(dfproject, aes(x=ETF1)) + 
+  geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.7, bw=0.5) +
+  geom_density(aes(x=ETF2),fill="#ff6666", color="#ff0000",alpha = 0.7)
+
+#library(plotly)
+#p <-
+#  ggplot(dfproject1, aes(x= date, y=etf1_fv, size=etf2_fv )) +
+#  geom_point(alpha=0.5) + 
+#  theme_bw()
+#ggplotly(p)
+
+# Questo grafico rappresenta la correlazione tra i vari fondi e tra
+# i fondi e l'indice benchmark
+
+ggpairs(dfproject[8:12])
+
+# Calcolo Alpha e Beta ----
+res_etf1 <- lm(dfproject$dlnETF1 ~ dfproject$dlnSP500)
+summary(res_etf1)
+a_etf1 = coefficients(res_etf1)[[1]]
+b_etf1 = coefficients(res_etf1)[[2]]
+
+res_etf2 <- lm(dfproject$dlnETF2 ~ dfproject$dlnSP500)
+summary(res_etf2)
+a_etf2 = coefficients(res_etf2)[[1]]
+b_etf2 = coefficients(res_etf2)[[2]]
+
+res_amf1 <- lm(dfproject$dlnAMF1 ~ dfproject$dlnSP500)
+summary(res_amf1)
+a_amf1 = coefficients(res_amf1)[[1]]
+b_amf1 = coefficients(res_amf1)[[2]]
+
+res_amf2 <- lm(dfproject$dlnAMF2 ~ dfproject$dlnSP500)
+summary(res_amf2)
+a_amf2 = coefficients(res_amf2)[[1]]
+b_amf2 = coefficients(res_amf2)[[2]]
+
+alpha = c(a_etf1,a_etf2,a_amf1,a_amf2)
+names(alpha) = c("a_etf1","a_etf2","a_amf1","a_amf2")
+beta = c(b_etf1,b_etf2,b_amf1,b_amf2)
+names(beta) = c("b_etf1","b_etf2","b_amf1","b_amf2")
+
+# Grafici con andamento del Beta ----
+chart.RollingRegression(ratio[,7:8],ratio[,11],
+                        main = "Rolling 12-day Beta (ETFs)",
+                        legend.loc = "bottomright")
+
+chart.RollingRegression(ratio[,9:10],ratio[,11],
+                        main = "Rolling 12-day Beta (Funds)",
+                        legend.loc = "bottomleft")
+
+# Calcolo del Rolling beta per ogni fondo ----
+
+width_cor = 12
+CAPM.beta_roll <- rollapply(data=ratio[,7:10], FUN=CAPM.beta, Rb= ratio[,11], Rf = 0, 
+                            width = width_cor, by = 1, align = "right", by.column=TRUE)
+CAPM.beta_roll = data.frame(dfproject[,1],CAPM.beta_roll)
+
+# Plot rolling beta etf
+jpeg("Beta_roll_etfSP.jpg", width = 700, height = 400)
+plot(CAPM.beta_roll[,1],CAPM.beta_roll[,2],
+     main = "Rolling 12-day Beta (ETFs)",
+     type = "l",
+     lwd = 2.5,
+     col = "darkblue",
+     xlim = c(as.Date("2011-02-01"),as.Date("2023-02-01")),
+     ylim = c(0.65,1.3),
+     xlab = "",
+     ylab = ""
+)
+lines(CAPM.beta_roll[,1],CAPM.beta_roll[,3], col = "darkred",lwd = 2.5)
+abline(h=c(0.2,0.4,0.6,0.8,1,1.2), col="lightgrey", lty=2, lwd=1)
+legend("bottomleft", legend = c("ETF 1", "ETF 2"),
+       lwd = 3, col = c("darkblue", "darkred"))
+dev.off()
+
+# Plot rolling beta amf
+jpeg("Beta_roll_amfSP.jpg", width = 700, height = 400)
+plot(CAPM.beta_roll[,1],CAPM.beta_roll[,4],
+     main = "Rolling 12-day Beta (Funds)",
+     type = "l",
+     lwd = 2.5,
+     col = "darkblue",
+     xlim = c(as.Date("2011-02-01"),as.Date("2023-02-01")),
+     ylim = c(-1,3),
+     xlab = "",
+     ylab = ""
+)
+lines(CAPM.beta_roll[,1],CAPM.beta_roll[,5], col = "darkred",lwd = 2.5)
+abline(h=c(-2:8), col="lightgrey", lty=2, lwd=1)
+legend("bottomright", legend = c("AMF 1", "AMF 2"),
+       lwd = 3, col = c("darkblue", "darkred"))
+dev.off()
+
+
+### Drawdown ----
+
+# Tabella con indicazione dei drawdown di ogni fondo
+table.Drawdowns(ratio[,7:11])
+
+# Plot dei drawdown (DA MIGLIORARE)
+jpeg("DrowdownSP.jpg", width = 700, height = 400)
+chart.Drawdown(ratio[,7:11],
+               main = "Drawdown",
+               legend.loc = "bottomleft")
+dev.off()
+
